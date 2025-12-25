@@ -57,14 +57,14 @@
 
     .bar{
       position: fixed;
-      bottom: max(14px, env(safe-area-inset-bottom));
+      bottom: max(8px, env(safe-area-inset-bottom));
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
       display:flex;
-      gap:10px;
+      gap:8px;
       align-items:center;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 999px;
       background: rgba(0,0,0,.25);
       border: 1px solid rgba(255,255,255,.10);
@@ -72,6 +72,9 @@
       -webkit-backdrop-filter: blur(12px);
       box-shadow: 0 18px 35px rgba(0,0,0,.35);
       user-select:none;
+      max-width: 95vw;
+      flex-wrap: wrap;
+      justify-content: center;
     }
     .btn{
       border: 0;
@@ -79,18 +82,23 @@
       color: var(--txt);
       background: rgba(255,255,255,.10);
       border: 1px solid rgba(255,255,255,.14);
-      padding: 8px 10px;
+      padding: 6px 8px;
       border-radius: 999px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       transition: transform .08s ease;
+      white-space: nowrap;
     }
     .btn:active{ transform: scale(.98); }
     .note{
-      font-size: 12px;
+      font-size: 11px;
       color: rgba(255,255,255,.70);
       white-space:nowrap;
+      display: none; /* 手机端隐藏提示文字，节省空间 */
+    }
+    @media (min-width: 600px) {
+      .note { display: block; }
     }
   </style>
 </head>
@@ -189,7 +197,8 @@
     // 背景 bokeh（少一点，别糊满屏）
     let bokeh=[];
     function initBokeh(){
-      bokeh = Array.from({length: 36}, () => ({
+      const bokehCount = Math.min(24, Math.floor(W*H/15000)); // 手机端自动减少
+      bokeh = Array.from({length: bokehCount}, () => ({
         x: rand(0, W), y: rand(0,H),
         r: rand(18, 70),
         a: rand(0.02, 0.06),
@@ -224,7 +233,7 @@
       lights.length=0;
       garland.length=0;
 
-      const count = 1100; // 彩灯点
+      const count = Math.min(800, Math.floor(W*H/2500)); // 彩灯点（手机端自动减少）
       for(let i=0;i<count;i++){
         const t = Math.random();           // 0..1 从顶到底
         const u = (Math.random()*2-1);     // -1..1 横向
@@ -240,10 +249,10 @@
       }
 
       // 花环：多圈螺旋带（很出氛围）
-      const rings = 10;
+      const rings = Math.min(8, Math.floor(W/80)); // 手机端减少圈数
       for(let k=0;k<rings;k++){
         const baseT = 0.12 + k*(0.80/(rings-1));
-        const seg = 140; // 每圈点数
+        const seg = Math.min(100, Math.floor(W/4)); // 每圈点数（手机端减少）
         for(let i=0;i<seg;i++){
           const a = (i/seg)*Math.PI*2;
           garland.push({
@@ -397,10 +406,10 @@
       }
       ctx.restore();
 
-      // 场景参数
+      // 场景参数（调整树的位置，避免被底部控制栏遮挡）
       const cx = W*0.5;
-      const topY = H*0.22;
-      const height = H*0.58;
+      const topY = H*0.18; // 树稍微上移
+      const height = H*0.55; // 稍微缩短高度，给底部留空间
       const baseY = topY + height;
       const halfW = Math.min(W*0.23, H*0.20); // 树的“半宽”
       const palette = themes[themeIdx];
