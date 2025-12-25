@@ -126,6 +126,11 @@
     const cv = document.getElementById('cv');
     const ctx = cv.getContext('2d', { alpha: true });
 
+    // 离屏 canvas 用于静态层缓存
+    const sc = document.createElement('canvas');
+    const sctx = sc.getContext('2d', { alpha: true });
+    let staticDirty = true; // 静态层需要重绘吗？
+
     let W=0,H=0,DPR=1;
     function resize(){
       DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -136,6 +141,12 @@
       cv.style.width = W+'px';
       cv.style.height = H+'px';
       ctx.setTransform(DPR,0,0,DPR,0,0);
+      
+      // 离屏 canvas 也要同步尺寸
+      sc.width = cv.width;
+      sc.height = cv.height;
+      sctx.setTransform(DPR,0,0,DPR,0,0);
+      staticDirty = true;
     }
     addEventListener('resize', resize, {passive:true});
     resize();
@@ -183,11 +194,11 @@
         p.vx *= 0.985;
         p.vy = p.vy*0.985 + 0.06; // gravity
         const alpha = 1 - (p.t / p.life);
-        drawGlow(p.x, p.y, p.r, p.c, alpha, 22);
+        drawGlow(ctx, p.x, p.y, p.r, p.c, alpha, 22);
 
         // 小尾焰：更"烟花"
         if(p.t % 2 === 0){
-          drawGlow(p.x - p.vx*1.2, p.y - p.vy*1.2, p.r*0.7, "rgba(255,255,255,1)", alpha*0.20, 18);
+          drawGlow(ctx, p.x - p.vx*1.2, p.y - p.vy*1.2, p.r*0.7, "rgba(255,255,255,1)", alpha*0.20, 18);
         }
 
         if(p.t >= p.life) fireworks.splice(i, 1);
@@ -197,8 +208,7 @@
     // 背景 bokeh（少一点，别糊满屏）
     let bokeh=[];
     function initBokeh(){
-      const bokehCount = Math.min(24, Math.floor(W*H/15000)); // 手机端自动减少
-      bokeh = Array.from({length: bokehCount}, () => ({
+      bokeh = Array.from({length: 36}, () => ({
         x: rand(0, W), y: rand(0,H),
         r: rand(18, 70),
         a: rand(0.02, 0.06),
@@ -233,7 +243,7 @@
       lights.length=0;
       garland.length=0;
 
-      const count = Math.min(800, Math.floor(W*H/2500)); // 彩灯点（手机端自动减少）
+      const count = 1100; // 彩灯点（双层渲染后性能足够）
       for(let i=0;i<count;i++){
         const t = Math.random();           // 0..1 从顶到底
         const u = (Math.random()*2-1);     // -1..1 横向
@@ -249,10 +259,10 @@
       }
 
       // 花环：多圈螺旋带（很出氛围）
-      const rings = Math.min(8, Math.floor(W/80)); // 手机端减少圈数
+      const rings = 10;
       for(let k=0;k<rings;k++){
         const baseT = 0.12 + k*(0.80/(rings-1));
-        const seg = Math.min(100, Math.floor(W/4)); // 每圈点数（手机端减少）
+        const seg = 140; // 每圈点数
         for(let i=0;i<seg;i++){
           const a = (i/seg)*Math.PI*2;
           garland.push({
@@ -267,34 +277,34 @@
     }
     initTree();
 
-    function drawGlow(x,y,r,color,alpha,blur=18){
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = blur;
-      ctx.beginPath();
-      ctx.arc(x,y,r,0,Math.PI*2);
-      ctx.fill();
-      ctx.restore();
+    function drawGlow(c, x,y,r,color,alpha,blur=18){
+      c.save();
+      c.globalAlpha = alpha;
+      c.fillStyle = color;
+      c.shadowColor = color;
+      c.shadowBlur = blur;
+      c.beginPath();
+      c.arc(x,y,r,0,Math.PI*2);
+      c.fill();
+      c.restore();
     }
 
-    function drawStar(cx, cy, spikes, outerR, innerR){
+    function drawStar(c, cx, cy, spikes, outerR, innerR){
       let rot = Math.PI / 2 * 3;
       const step = Math.PI / spikes;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - outerR);
+      c.beginPath();
+      c.moveTo(cx, cy - outerR);
       for (let i = 0; i < spikes; i++) {
-        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        c.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
         rot += step;
-        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+        c.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
         rot += step;
       }
-      ctx.closePath();
+      c.closePath();
     }
 
-    function drawTreeSilhouette(cx, topY, baseY, halfW){
-      // 三层“松叶”剪影：保证树形
+    function drawTreeSilhouette(c, cx, topY, baseY, halfW){
+      // 三层"松叶"剪影：保证树形
       const layers = [
         {y: topY, w: halfW*0.55, h: (baseY-topY)*0.32, a: 0.38},
         {y: topY+(baseY-topY)*0.18, w: halfW*0.78, h: (baseY-topY)*0.40, a: 0.32},
@@ -302,63 +312,63 @@
       ];
 
       for(const L of layers){
-        const grad = ctx.createLinearGradient(cx, L.y, cx, L.y+L.h);
+        const grad = c.createLinearGradient(cx, L.y, cx, L.y+L.h);
         grad.addColorStop(0, `rgba(80,255,190,${L.a})`);
         grad.addColorStop(1, `rgba(10,80,60,0)`);
-        ctx.fillStyle = grad;
+        c.fillStyle = grad;
 
-        ctx.beginPath();
-        ctx.moveTo(cx, L.y);
-        ctx.lineTo(cx - L.w, L.y + L.h);
-        ctx.lineTo(cx + L.w, L.y + L.h);
-        ctx.closePath();
-        ctx.fill();
+        c.beginPath();
+        c.moveTo(cx, L.y);
+        c.lineTo(cx - L.w, L.y + L.h);
+        c.lineTo(cx + L.w, L.y + L.h);
+        c.closePath();
+        c.fill();
 
         // 叠一层暗绿本体
-        ctx.fillStyle = `rgba(18,120,80,${L.a+0.10})`;
-        ctx.beginPath();
-        ctx.moveTo(cx, L.y + 6);
-        ctx.lineTo(cx - L.w*0.95, L.y + L.h);
-        ctx.lineTo(cx + L.w*0.95, L.y + L.h);
-        ctx.closePath();
-        ctx.fill();
+        c.fillStyle = `rgba(18,120,80,${L.a+0.10})`;
+        c.beginPath();
+        c.moveTo(cx, L.y + 6);
+        c.lineTo(cx - L.w*0.95, L.y + L.h);
+        c.lineTo(cx + L.w*0.95, L.y + L.h);
+        c.closePath();
+        c.fill();
       }
     }
 
-    function drawTrunk(cx, baseY, halfW){
+    function drawTrunk(c, cx, baseY, halfW){
       const trunkW = Math.max(18, Math.min(40, halfW*0.22));
       const trunkH = Math.max(60, Math.min(110, H*0.13));
       const x = cx - trunkW/2;
       const y = baseY - trunkH*0.05; // 让它插进树里一点
 
       // 投影
-      ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,.28)";
-      ctx.shadowColor = "rgba(0,0,0,.55)";
-      ctx.shadowBlur = 18;
-      ctx.beginPath();
-      ctx.ellipse(cx, baseY+8, trunkW*0.75, trunkW*0.28, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
+      c.save();
+      c.fillStyle = "rgba(0,0,0,.28)";
+      c.shadowColor = "rgba(0,0,0,.55)";
+      c.shadowBlur = 18;
+      c.beginPath();
+      c.ellipse(cx, baseY+8, trunkW*0.75, trunkW*0.28, 0, 0, Math.PI*2);
+      c.fill();
+      c.restore();
 
       // 主体渐变
-      const g = ctx.createLinearGradient(x, y, x+trunkW, y);
+      const g = c.createLinearGradient(x, y, x+trunkW, y);
       g.addColorStop(0, "rgba(150,95,45,.92)");
       g.addColorStop(0.55, "rgba(110,70,34,.95)");
       g.addColorStop(1, "rgba(80,50,24,.92)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      roundRect(ctx, x, y, trunkW, trunkH, 10);
-      ctx.fill();
+      c.fillStyle = g;
+      c.beginPath();
+      roundRect(c, x, y, trunkW, trunkH, 10);
+      c.fill();
 
       // 高光
-      ctx.fillStyle = "rgba(255,210,150,.10)";
-      ctx.beginPath();
-      roundRect(ctx, x + trunkW*0.18, y + trunkH*0.10, trunkW*0.18, trunkH*0.72, 10);
-      ctx.fill();
+      c.fillStyle = "rgba(255,210,150,.10)";
+      c.beginPath();
+      roundRect(c, x + trunkW*0.18, y + trunkH*0.10, trunkW*0.18, trunkH*0.72, 10);
+      c.fill();
 
       // 轻微发光融入
-      drawGlow(cx, y + trunkH*0.55, trunkW*1.1, "rgba(150,95,45,1)", 0.05, 22);
+      drawGlow(c, cx, y + trunkH*0.55, trunkW*1.1, "rgba(150,95,45,1)", 0.05, 22);
     }
 
     function roundRect(c, x, y, w, h, r){
@@ -371,7 +381,69 @@
       c.closePath();
     }
 
-    // 轻微交互：左右滑动改变“花环摆动”（别让树乱转）
+    // 获取场景参数（统一计算，避免 UI 遮挡）
+    function getScene(){
+      const cx = W*0.5;
+      let topY = H*0.18;
+      let height = H*0.55;
+      let baseY = topY + height;
+      const halfW = Math.min(W*0.23, H*0.20);
+      
+      // 避免底部控制栏遮挡
+      try{
+        const bar = document.querySelector('.bar');
+        if(bar){
+          const barH = bar.getBoundingClientRect().height + 14;
+          const maxBaseY = H - barH;
+          if(baseY > maxBaseY){
+            const shift = baseY - maxBaseY;
+            baseY -= shift;
+            height -= shift;
+          }
+        }
+      }catch(e){}
+      
+      return { cx, topY, height, baseY, halfW };
+    }
+
+    // 绘制静态层（只画一次，缓存到离屏 canvas）
+    function drawStaticLayer(){
+      sctx.clearRect(0,0,W,H);
+      
+      const { cx, topY, height, baseY, halfW } = getScene();
+      
+      // 地面丘陵
+      sctx.save();
+      const hill = sctx.createRadialGradient(cx, baseY+H*0.24, 10, cx, baseY+H*0.24, W*0.75);
+      hill.addColorStop(0, "rgba(40,130,110,.18)");
+      hill.addColorStop(1, "rgba(0,0,0,0)");
+      sctx.fillStyle = hill;
+      sctx.beginPath();
+      sctx.ellipse(cx, baseY+H*0.18, W*0.52, H*0.22, 0, 0, Math.PI*2);
+      sctx.fill();
+      sctx.restore();
+      
+      // 树剪影
+      drawTreeSilhouette(sctx, cx, topY, baseY, halfW);
+      
+      // 树干
+      drawTrunk(sctx, cx, baseY, halfW);
+      
+      // 花环底色（静态层只画固定亮度，不闪烁）
+      const wiggle = 0; // 静态层不摆动
+      for(const g of garland){
+        const t01 = g.t;
+        const y = topY + t01*height;
+        const w = halfW * (0.18 + t01*0.98);
+        const x = cx + Math.cos(g.a + wiggle) * w;
+        // 只画一个固定亮度底色，保持高级感
+        drawGlow(sctx, x, y, g.r*1.2, "rgba(255,211,106,1)", 0.18, 18);
+      }
+      
+      staticDirty = false;
+    }
+
+    // 轻微交互：左右滑动改变"花环摆动"（别让树乱转）
     let sway = 0;
     let lastX = null;
     addEventListener('pointerdown', e => { lastX = e.clientX; }, {passive:true});
@@ -383,14 +455,25 @@
     addEventListener('pointerup', ()=>{ lastX=null; sway=0; }, {passive:true});
 
     function tick(t){
+      // 先绘制静态层（如果需要）
+      if(staticDirty) drawStaticLayer();
+      
+      // 清空主画布，然后直接贴静态层
       ctx.clearRect(0,0,W,H);
+      ctx.drawImage(sc, 0, 0, W, H);
 
+      // 获取场景参数
+      const { cx, topY, height, baseY, halfW } = getScene();
+      const palette = themes[themeIdx];
+
+      // === 动态层：只画会变化的部分 ===
+      
       // bokeh
       for(const b of bokeh){
         b.x += b.vx; b.y += b.vy;
         if(b.x<-90) b.x=W+90; if(b.x>W+90) b.x=-90;
         if(b.y<-90) b.y=H+90; if(b.y>H+90) b.y=-90;
-        drawGlow(b.x, b.y, b.r, "rgba(255,255,255,1)", b.a, 26);
+        drawGlow(ctx, b.x, b.y, b.r, "rgba(255,255,255,1)", b.a, 26);
       }
 
       // 雪
@@ -406,32 +489,7 @@
       }
       ctx.restore();
 
-      // 场景参数（调整树的位置，避免被底部控制栏遮挡）
-      const cx = W*0.5;
-      const topY = H*0.18; // 树稍微上移
-      const height = H*0.55; // 稍微缩短高度，给底部留空间
-      const baseY = topY + height;
-      const halfW = Math.min(W*0.23, H*0.20); // 树的“半宽”
-      const palette = themes[themeIdx];
-
-      // 地面丘陵（让下半部分不空）
-      ctx.save();
-      const hill = ctx.createRadialGradient(cx, baseY+H*0.24, 10, cx, baseY+H*0.24, W*0.75);
-      hill.addColorStop(0, "rgba(40,130,110,.18)");
-      hill.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = hill;
-      ctx.beginPath();
-      ctx.ellipse(cx, baseY+H*0.18, W*0.52, H*0.22, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
-
-      // 树剪影（关键：先画它，树就不丑）
-      drawTreeSilhouette(cx, topY, baseY, halfW);
-
-      // 树干（2D 渐变最稳）
-      drawTrunk(cx, baseY, halfW);
-
-      // 花环（螺旋带）
+      // 花环闪烁层（动态部分，叠加在静态底色上）
       const wiggle = Math.sin(t*0.0012)*0.25 + sway*0.35;
       for(const g of garland){
         const t01 = g.t;
@@ -440,8 +498,11 @@
         const x = cx + Math.cos(g.a + wiggle + t*0.0007) * w;
 
         const tw = 0.35 + 0.55*(0.5 + 0.5*Math.sin(g.phase + t*0.004*g.speed));
-        // 花环用更偏暖的金色系
-        drawGlow(x, y, g.r*(1.0+0.35*tw), "rgba(255,211,106,1)", 0.22 + 0.35*tw, 20);
+        // 只画闪烁增量部分
+        const extraAlpha = 0.35 * tw;
+        if(extraAlpha > 0.05){
+          drawGlow(ctx, x, y, g.r*(1.0+0.35*tw), "rgba(255,211,106,1)", extraAlpha, 20);
+        }
       }
 
       // 彩灯点云（均匀铺满树体）
@@ -461,7 +522,7 @@
         const col = palette[p.cidx % palette.length];
         const alpha = clamp((0.18 + 0.58*tw) * edgeFade, 0, 1);
 
-        drawGlow(x, y, p.r*(0.95+0.25*tw), col, alpha, 18);
+        drawGlow(ctx, x, y, p.r*(0.95+0.25*tw), col, alpha, 18);
       }
 
       // 顶部星星
@@ -472,11 +533,11 @@
       ctx.fillStyle = "rgba(255,211,106,.95)";
       ctx.shadowColor = "rgba(255,211,106,1)";
       ctx.shadowBlur = 34;
-      drawStar(cx, starY, 5, 18*pulse, 8*pulse);
+      drawStar(ctx, cx, starY, 5, 18*pulse, 8*pulse);
       ctx.fill();
       ctx.restore();
-      drawGlow(cx, starY, 28, "rgba(255,211,106,1)", 0.14, 30);
-      drawGlow(cx, starY, 52, "rgba(255,211,106,1)", 0.07, 34);
+      drawGlow(ctx, cx, starY, 28, "rgba(255,211,106,1)", 0.14, 30);
+      drawGlow(ctx, cx, starY, 52, "rgba(255,211,106,1)", 0.07, 34);
 
       // 更新星星位置（用于点击检测）
       starPos.x = cx;
@@ -575,6 +636,7 @@
       for(const p of lights){
         p.cidx = Math.floor(rand(0, themes[themeIdx].length));
       }
+      staticDirty = true; // 主题切换需要重绘静态层
       status.textContent = "灯光主题已切换 ✨";
     });
 
@@ -602,6 +664,7 @@
     }, {once:true});
 
     addEventListener('resize', ()=>{
+      resize(); // 这会设置 staticDirty = true
       initSnow();
       initBokeh();
       initTree();
